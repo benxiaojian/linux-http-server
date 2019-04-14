@@ -17,7 +17,7 @@ LDFLAGS := ./common/mongoose.a
 
 LIBS :=
 
-CFLAGS := -std=c++11 $(INCLUDE) $(LIBS)
+CFLAGS := -std=c++11 $(INCLUDE) $(LIBS) -g
 
 $(DIR_OBJ)/%.o: $(DIR_SRC)/%.cpp
 	$(CC) -c $< -o $@  $(CFLAGS) 

@@ -65,26 +65,57 @@ void HttpServer::OnHttpEvent(struct mg_connection *connection, int event_type, v
 }
 
 
-static void login(mg_connection *connection)
+static bool route_check(http_message *http_req, const string route_prefix)
+{
+    if (mg_vcmp(&http_req->uri, route_prefix.c_str()) == 0) {
+        return true;
+    }
+
+    return false;
+    // TODO: 还可以判断 GET, POST, PUT, DELTE等方法
+    //mg_vcmp(&http_msg->method, "GET");
+    //mg_vcmp(&http_msg->method, "POST");
+    //mg_vcmp(&http_msg->method, "PUT");
+    //mg_vcmp(&http_msg->method, "DELETE");
+}
+
+
+static void rootpage(mg_connection *connection)
 {
     stringstream stringbuffer;
     ifstream file("./web/login.html");
 
     stringbuffer << file.rdbuf();
 
-    mg_send_head(connection, 200, stringbuffer.str().length(), "Content-type: text/html\r\n\r\n ");
+    mg_printf(connection, "%s", "HTTP/1.1 200 OK\r\nContent-type: text/html\r\n\r\n");
     mg_printf(connection, "%s", stringbuffer.str().c_str());
+}
+
+
+static void login(mg_connection *connection, http_message *http_req)
+{
+    char username[1024];
+    char password[1024];
+    // if (strcmp(http_req->method.p, "POST") == 0) {
+        mg_get_http_var(&http_req->body, "username", username, sizeof(username));
+        mg_get_http_var(&http_req->body, "password", password, sizeof(password));
+        cout << "username = " << username << endl;
+        cout << "password = " << password << endl;
+    // }
 }
 
 
 void HttpServer::HandleEvent(mg_connection *connection, http_message *http_req)
 {
-    // string req_str = string(http_req->message.p, http_req->message.len);
-    // cout << req_str << endl;
-    // mg_serve_http(connection, (struct http_message *)http_req, s_server_option);
-    
-    login(connection);
+    if (route_check(http_req, "/")) {
+        rootpage(connection);
+    } else if (route_check(http_req, "/login")) {
+        login(connection, http_req);
+    }
 
+    string req_str = string(http_req->message.p, http_req->message.len);
+    cout << req_str << endl;
+    // mg_serve_http(connection, (struct http_message *)http_req, s_server_option);
 }
 
 

@@ -8,9 +8,19 @@
     <h1>登陆</h1>
     <div class="container">
         <h2 class="form-signin-heading text-center">Sign in with your Account</h2>
-        <form class="form-signin" action="/login" method="get">
-            <input type="text" name="q">
-            <input type="submit" value="search">
+        <form class="form-signin" action="/login" method="post">
+            <label for="username">
+                用户名：
+            </label>
+            <input type="text" name="username" id="username">
+            <br>
+            <label for="password">
+                &nbsp; 密码：  &nbsp;
+            </label >
+            <input type="text" name="password" id="password">
+            <br>
+            <br>
+            <input type="submit" value="登录" style="margin:0 50px">
         </form>
     </div>
     

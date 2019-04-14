@@ -85,3 +85,45 @@ void HttpServer::HandleEvent(mg_connection *connection, http_message *http_req)
     mg_serve_http(connection, (struct http_message *)http_req, s_server_option);
 }
 ```
+***
+实现了基本的http server功能后，根据 `URI`的不同请求触发。可以查看打印的`http request`，在输入`127.0.0.1:8000`访问服务后，请求的HTTP方法为`GET`，请求路径`/`
+```
+GET / HTTP/1.1
+Host: 127.0.0.1:8000
+User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:66.0) Gecko/20100101 Firefox/66.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+Accept-Language: en-US,en;q=0.5
+Accept-Encoding: gzip, deflate
+Connection: keep-alive
+Upgrade-Insecure-Requests: 1
+Cache-Control: max-age=0
+```
+按照需求返回`登录界面`，将上面的`HandleEvent`修改成返回`login.html`内容。
+```c++
+static void login(mg_connection *connection)
+{
+    stringstream stringbuffer;
+    ifstream file("./web/login.html");
+
+    stringbuffer << file.rdbuf();
+
+    mg_send_head(connection, 200, stringbuffer.str().length(), "Content-type: text/html\r\n\r\n ");
+    mg_printf(connection, "%s", stringbuffer.str().c_str());
+}
+
+static bool route_check(http_message *http_req, char *route_prefix)
+{
+    if (mg_vcmp(&http_req->uri, route_prefix)) {
+        return true;
+    }
+
+    return false;
+}
+
+void HttpServer::HandleEvent(mg_connection *connection, http_message *http_req)
+{
+    if (route_check(http_req, "/")) {
+        login(connection);
+    }
+}
+```
