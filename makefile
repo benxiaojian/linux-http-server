@@ -15,7 +15,7 @@ INCLUDE := -I./inc -I./common
 
 LDFLAGS := ./common/mongoose.a
 
-LIBS :=
+LIBS :=	-lmysqlclient
 
 CFLAGS := -std=c++11 $(INCLUDE) $(LIBS) -g
 
