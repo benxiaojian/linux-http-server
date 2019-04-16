@@ -5,10 +5,33 @@
 #include <unordered_map>
 #include <functional>
 
+/* This is the name of the cookie carrying the session ID. */
+#define SESSION_COOKIE_NAME "mgs"
+/* In our example sessions are destroyed after 30 seconds of inactivity. */
+#define SESSION_TTL 30.0
+#define SESSION_CHECK_INTERVAL 5.0
+
+/* Session information structure. */
+struct session {
+  /* Session ID. Must be unique and hard to guess. */
+  uint64_t id;
+  /*
+   * Time when the session was created and time of last activity.
+   * Used to clean up stale sessions.
+   */
+  double created;
+  double last_used; /* Time when the session was last active. */
+
+  /* User name this session is associated with. */
+  char *user;
+  /* Some state associated with user's session. */
+  int lucky_number;
+};
+
 // 定义http返回callback
 typedef void OnRspCallback(mg_connection *c, std::string);
 // 定义http请求handler
-using ReqHandler = std::function<bool (std::string, std::string, mg_connection *c, OnRspCallback)>;
+using ReqHandler = std::function<void (mg_connection *connection, http_message *http_req)>;
 
 class HttpServer
 {
@@ -19,8 +42,12 @@ public:
     void Init(const std::string &port, const bool ssl_enable = false);        // 初始化设置
     bool Start(void);
     bool Stop(void);
-    void RegisterHandler(const std::string &url, ReqHandler req_handler);
-    void RemoveHandler(const std::string &url);
+    void RegisterHandler(const std::string &url, ReqHandler req_handler);     // 注册url对应的处理方法
+    void RemoveHandler(const std::string &url);                               // 删除处理方法
+
+    static struct session *GetSession(struct http_message *hm);
+    void DestroySession(struct session *s);
+    struct session *CreateSession(const char *user, const struct http_message *hm);
 
     static mg_serve_http_opts s_server_option; // web服务器选项
     static std::string s_web_dir;              // 网页根目录

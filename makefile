@@ -17,7 +17,7 @@ LDFLAGS := ./common/mongoose.a
 
 LIBS :=	-lmysqlclient
 
-CFLAGS := -std=c++11 $(INCLUDE) $(LIBS) -g
+CFLAGS := -std=c++11 $(INCLUDE) $(LIBS) -DMG_ENABLE_HTTP_STREAMING_MULTIPART -g
 
 $(DIR_OBJ)/%.o: $(DIR_SRC)/%.cpp
 	$(CC) -c $< -o $@  $(CFLAGS) 
