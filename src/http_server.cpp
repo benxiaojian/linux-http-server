@@ -5,10 +5,125 @@
 #include <db_connection.h>
 using namespace std;
 
+/* This is the name of the cookie carrying the session ID. */
+#define SESSION_COOKIE_NAME "mgs"
+/* In our example sessions are destroyed after 30 seconds of inactivity. */
+#define SESSION_TTL 30.0
+#define SESSION_CHECK_INTERVAL 5.0
+
+/* Session information structure. */
+struct session {
+  /* Session ID. Must be unique and hard to guess. */
+  uint64_t id;
+  /*
+   * Time when the session was created and time of last activity.
+   * Used to clean up stale sessions.
+   */
+  double created;
+  double last_used; /* Time when the session was last active. */
+
+  /* User name this session is associated with. */
+  char *user;
+  /* Some state associated with user's session. */
+  int lucky_number;
+};
+
+/*
+ * This example uses a simple in-memory storage for just 10 sessions.
+ * A real-world implementation would use persistent storage of some sort.
+ */
+#define NUM_SESSIONS 10
+struct session s_sessions[NUM_SESSIONS];
+
+/*
+ * Password check function.
+ * In our example all users have password "password".
+ */
+static int check_pass(const char *user, const char *pass) {
+  (void) user;
+  return (strcmp(pass, "password") == 0);
+}
+
+/*
+ * Parses the session cookie and returns a pointer to the session struct
+ * or NULL if not found.
+ */
+static struct session *get_session(struct http_message *hm) {
+  char ssid_buf[21];
+  char *ssid = ssid_buf;
+  struct session *ret = NULL;
+  struct mg_str *cookie_header = mg_get_http_header(hm, "cookie");
+  if (cookie_header == NULL) return ret;
+  if (!mg_http_parse_header2(cookie_header, SESSION_COOKIE_NAME, &ssid,
+                             sizeof(ssid_buf))) {
+    return ret;
+  }
+  uint64_t sid = strtoull(ssid, NULL, 16);
+  int i;
+  for (i = 0; i < NUM_SESSIONS; i++) {
+    if (s_sessions[i].id == sid) {
+      s_sessions[i].last_used = mg_time();
+      ret = &s_sessions[i];
+      return ret;;
+    }
+  }
+
+  return ret;
+}
+
+/*
+ * Destroys the session state.
+ */
+static void destroy_session(struct session *s) {
+  free(s->user);
+  memset(s, 0, sizeof(*s));
+}
+
+/*
+ * Creates a new session for the user.
+ */
+static struct session *create_session(const char *user,
+                                      const struct http_message *hm) {
+  /* Find first available slot or use the oldest one. */
+  struct session *s = NULL;
+  struct session *oldest_s = s_sessions;
+  int i;
+  for (i = 0; i < NUM_SESSIONS; i++) {
+    if (s_sessions[i].id == 0) {
+      s = &s_sessions[i];
+      break;
+    }
+    if (s_sessions[i].last_used < oldest_s->last_used) {
+      oldest_s = &s_sessions[i];
+    }
+  }
+  if (s == NULL) {
+    destroy_session(oldest_s);
+    printf("Evicted %" INT64_X_FMT "/%s\n", oldest_s->id, oldest_s->user);
+    s = oldest_s;
+  }
+  /* Initialize new session. */
+  s->created = s->last_used = mg_time();
+  s->user = strdup(user);
+  s->lucky_number = rand();
+  /* Create an ID by putting various volatiles into a pot and stirring. */
+  cs_sha1_ctx ctx;
+  cs_sha1_init(&ctx);
+  cs_sha1_update(&ctx, (const unsigned char *) hm->message.p, hm->message.len);
+  cs_sha1_update(&ctx, (const unsigned char *) s, sizeof(*s));
+  unsigned char digest[20];
+  cs_sha1_final(digest, &ctx);
+  s->id = *((uint64_t *) digest);
+  return s;
+}
+
+
+
 void HttpServer::Init(const string &port, const bool ssl_enable)
 {
     m_port = port;
     m_ssl_enable = ssl_enable;
+    s_server_option.document_root = ".";
 }
 
 
@@ -71,6 +186,8 @@ void HttpServer::OnHttpEvent(struct mg_connection *connection, int event_type, v
         case MG_EV_HTTP_REQUEST:
             HandleEvent(connection, http_req);
             break;
+        case MG_EV_SSI_CALL:
+            break;
         default:
             break;
     }
@@ -104,7 +221,7 @@ static void rootpage(mg_connection *connection)
 }
 
 
-static bool getUsernamePassword(const char *username, const char *password)
+static bool checkPassword(const char *username, const char *password)
 {
     DbConnection db("localhost", "root", "root", "ses");
 
@@ -127,13 +244,26 @@ static bool login(mg_connection *connection, http_message *http_req)
 {
     char username[1024];
     char password[1024];
-    mg_get_http_var(&http_req->body, "username", username, sizeof(username));
-    mg_get_http_var(&http_req->body, "password", password, sizeof(password));
+    int user_len = mg_get_http_var(&http_req->body, "username", username, sizeof(username));
+    int pass_len = mg_get_http_var(&http_req->body, "password", password, sizeof(password));
 
-    cout << "username = " << username << endl;
-    cout << "password = " << password << endl;
+    if (user_len<=0 && pass_len<=0) {
+        mg_printf(connection, "HTTP/1.0 400 Bad Request\r\n\r\nusername, password required.\r\n");
+        return false;
+    }
 
-    return getUsernamePassword(username, password);
+    if (!checkPassword(username, password)) {
+        mg_printf(connection, "HTTP/1.0 403 Unauthorized\r\n\r\nWrong password.\r\n");
+        return false;
+    }
+
+    struct session *s = create_session(username, http_req);
+    char shead[100];
+    snprintf(shead, sizeof(shead),
+            "Set-Cookie: %s=%" INT64_X_FMT "; path=/", SESSION_COOKIE_NAME,
+            s->id);
+    mg_http_send_redirect(connection, 302, mg_mk_str("/"), mg_mk_str(shead));
+    return true;
 }
 
 
@@ -143,16 +273,27 @@ void HttpServer::HandleEvent(mg_connection *connection, http_message *http_req)
     cout << req_str << endl;
 
     if (route_check(http_req, "/")) {
-        rootpage(connection);
-    } else if (route_check(http_req, "/login")) {
-        // if (login(connection, http_req)) {
-        if (true) {
-            cout << "auth pass" << endl;
-            // s_web_dir = "/test_files";
-            s_server_option.document_root = "./login";
-            s_server_option.enable_directory_listing = "yes";
+        struct session *s = get_session(http_req);
+        if (s == NULL) {
+            rootpage(connection);
+            connection->flags |= MG_F_SEND_AND_CLOSE;
+        } else {
+            fprintf(stderr, "%s (sid %" INT64_X_FMT ") requested %.*s\n", s->user,
+                    s->id, (int) http_req->uri.len, http_req->uri.p);
+            connection->user_data = s;
             mg_serve_http(connection, (struct http_message *)http_req, s_server_option);
-            // mg_http_serve_file(connection, http_req, "test_files/", mg_mk_str("text/plain"), mg_mk_str(""));
+        }
+        
+    } else if (route_check(http_req, "/login")) {
+        if (login(connection, http_req)) {
+            if (true) {
+                cout << "auth pass" << endl;
+                // s_web_dir = "/test_files";
+                // s_server_option.document_root = "./login";
+                // s_server_option.enable_directory_listing = "yes";
+                // mg_serve_http(connection, (struct http_message *)http_req, s_server_option);
+                // mg_http_serve_file(connection, http_req, "test_files/", mg_mk_str("text/plain"), mg_mk_str(""));
+            }
         }
     }
 
