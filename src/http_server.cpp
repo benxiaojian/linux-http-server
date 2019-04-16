@@ -281,20 +281,12 @@ void HttpServer::HandleEvent(mg_connection *connection, http_message *http_req)
             fprintf(stderr, "%s (sid %" INT64_X_FMT ") requested %.*s\n", s->user,
                     s->id, (int) http_req->uri.len, http_req->uri.p);
             connection->user_data = s;
+            s_server_option.document_root = "./test_files/";
             mg_serve_http(connection, (struct http_message *)http_req, s_server_option);
         }
         
     } else if (route_check(http_req, "/login")) {
-        if (login(connection, http_req)) {
-            if (true) {
-                cout << "auth pass" << endl;
-                // s_web_dir = "/test_files";
-                // s_server_option.document_root = "./login";
-                // s_server_option.enable_directory_listing = "yes";
-                // mg_serve_http(connection, (struct http_message *)http_req, s_server_option);
-                // mg_http_serve_file(connection, http_req, "test_files/", mg_mk_str("text/plain"), mg_mk_str(""));
-            }
-        }
+            login(connection, http_req);
     }
 
 }
