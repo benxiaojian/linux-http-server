@@ -3,6 +3,8 @@ DIR_SRC = ./src
 DIR_OBJ = ./obj
 DIR_BIN = ./bin
 
+# include ./common/makefile
+
 SRC = $(wildcard $(DIR_SRC)/*.cpp)
 OBJ := $(patsubst %.cpp,$(DIR_OBJ)/%.o,$(notdir $(SRC)))
 
@@ -17,7 +19,7 @@ LDFLAGS := ./common/mongoose.a
 
 LIBS :=	-lmysqlclient
 
-CFLAGS := -std=c++11 $(INCLUDE) $(LIBS) -DMG_ENABLE_HTTP_STREAMING_MULTIPART -g
+CFLAGS := -std=c++11 $(INCLUDE) $(LIBS) -DMG_ENABLE_HTTP_STREAMING_MULTIPART -DMG_ENABLE_HTTP_URL_REWRITES -g
 
 $(DIR_OBJ)/%.o: $(DIR_SRC)/%.cpp
 	$(CC) -c $< -o $@  $(CFLAGS) 

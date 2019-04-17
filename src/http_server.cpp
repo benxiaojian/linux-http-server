@@ -1,6 +1,8 @@
 #include <iostream>
 #include <cstdio>
 #include <sstream>
+#include <fstream>
+#include <vector>
 #include <http_server.h>
 #include <db_connection.h>
 using namespace std;
@@ -185,18 +187,19 @@ static void handle_upload(struct mg_connection *nc, int ev, void *p)
         mg_printf(nc,
                   "HTTP/1.1 200 OK\r\n"
                   "Content-Type: text/plain\r\n"
-                  "Connection: close\r\n\r\n"
-                  "Written %ld of POST data to a temp file\n\n",
+                  "Connection: close\r\n\r\n",
                   (long)ftell(data->fp));
         nc->flags |= MG_F_SEND_AND_CLOSE;
         fclose(data->fp);
         free(data);
         nc->user_data = NULL;
         insertFileToDb(user.c_str(), mp->file_name);
+        mg_http_send_redirect(connection, 302, mg_mk_str("/"), mg_mk_str(""));
         break;
     }
     }
 }
+
 
 void HttpServer::Init(const string &port, const bool ssl_enable)
 {
@@ -204,6 +207,7 @@ void HttpServer::Init(const string &port, const bool ssl_enable)
     m_ssl_enable = ssl_enable;
     s_server_option.document_root = ".";
 }
+
 
 bool HttpServer::Start(void)
 {
@@ -218,7 +222,6 @@ bool HttpServer::Start(void)
         return -1;
     }
 
-    // mg_register_http_endpoint(connection, "/upload", handle_upload MG_UD_ARG(NULL));
     mg_set_protocol_http_websocket(connection);
     cout << "Starting web server on port " << m_port << endl;
     while (true)
@@ -230,12 +233,14 @@ bool HttpServer::Start(void)
     return true;
 }
 
+
 bool HttpServer::Stop(void)
 {
     mg_mgr_free(&m_mgr);
 
     return true;
 }
+
 
 void HttpServer::RegisterHandler(const string &url, ReqHandler req_handler)
 {
@@ -256,11 +261,12 @@ void HttpServer::RemoveHandler(const string &url)
     }
 }
 
-void p(http_message *http_req)
+
+static void p(http_message *http_req)
 {
-    string req_str = string(http_req->message.p, http_req->message.len);
-    cout << req_str << endl;
+    cout << http_req->message.p << endl;
 }
+
 
 void HttpServer::OnHttpEvent(struct mg_connection *connection, int event_type, void *event_data)
 {
@@ -290,6 +296,7 @@ void HttpServer::OnHttpEvent(struct mg_connection *connection, int event_type, v
     }
 }
 
+
 static bool route_check(http_message *http_req, const string route_prefix)
 {
     if (mg_vcmp(&http_req->uri, route_prefix.c_str()) == 0)
@@ -298,15 +305,67 @@ static bool route_check(http_message *http_req, const string route_prefix)
     }
 
     return false;
-    // TODO: 还可以判断 GET, POST, PUT, DELTE等方法
-    //mg_vcmp(&http_msg->method, "GET");
-    //mg_vcmp(&http_msg->method, "POST");
-    //mg_vcmp(&http_msg->method, "PUT");
-    //mg_vcmp(&http_msg->method, "DELETE");
 }
+
+
+static void getAllFilesFromDb(http_message *http_req, vector<string> &files)
+{
+    files.clear();
+    struct session *s = HttpServer::GetSession(http_req);
+    DbConnection db("localhost", "root", "root", "ses");
+
+    db.Connect();
+    list<map<string, string>> result;
+    db.Select("select * from files where user = \"test\"", result);
+
+    for (auto &it : result) {
+        map<string, string> map_it = it;
+        char tmp[1024];
+        sprintf(tmp, "/%s", map_it["file_name"].c_str());
+        files.push_back(tmp);
+    }
+
+    db.Close();
+}
+
+
+static bool getFile(http_message *http_req, string &file_path)
+{
+    vector<string> files;
+    char tmp_file_path[1024];
+    getAllFilesFromDb(http_req, files);
+
+    for (auto &file : files)
+    {
+        if (route_check(http_req, file)) {
+            struct session *s = HttpServer::GetSession(http_req);
+            sprintf(tmp_file_path, "%s%s%s", kUPLOAD_FILE_PATH, s->user, file.c_str());
+            cout << "\n\n\file name = " << tmp_file_path << endl;
+            file_path = tmp_file_path;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+
+static void download(mg_connection *connection, string &file_path)
+{
+    stringstream stringbuffer;
+    ifstream file(file_path);
+
+    stringbuffer << file.rdbuf();
+
+    mg_printf(connection, "%s%s","HTTP/1.1 200 OK\r\n"
+                  "Content-Type: text/plain\r\n"
+                  "Connection: close\r\n\r\n", stringbuffer.str().c_str());
+}
+
 
 void HttpServer::HandleEvent(mg_connection *connection, http_message *http_req)
 {
+    string file_path;
     string url = string(http_req->uri.p, http_req->uri.len);
     auto it = s_handler_map.find(url);
     if (it != s_handler_map.end())
@@ -317,6 +376,10 @@ void HttpServer::HandleEvent(mg_connection *connection, http_message *http_req)
     else if (route_check(http_req, "/upload"))
     {
         mg_serve_http(connection, (struct http_message *)http_req, s_server_option);
+    }
+    else if (getFile(http_req, file_path))
+    {
+        download(connection, file_path);
     }
     else
     {

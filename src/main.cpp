@@ -100,9 +100,10 @@ void query(mg_connection *connection, http_message *http_req)
 
     for (auto &it : result) {
         map<string, string> map_it = it;
-        os << "<div>" << map_it["file_name"] << "</div>";
+        os << "<div><a href=\"" << map_it["file_name"] << "\">" << map_it["file_name"] << "</a></div>";
     }
 
+    db.Close();
     os << "</body></html>";
     mg_printf(connection, "%s", "HTTP/1.1 200 OK\r\nContent-type: text/html\r\n\r\n");
     cout << os.str() << endl;
