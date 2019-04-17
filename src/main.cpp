@@ -62,6 +62,10 @@ bool login(mg_connection *connection, http_message *http_req)
             "Set-Cookie: %s=%" INT64_X_FMT "; path=/", SESSION_COOKIE_NAME,
             s->id);
     mg_http_send_redirect(connection, 302, mg_mk_str("/"), mg_mk_str(shead));
+
+    // char cmd[1024];
+    // sprintf("%s %s/%s", "mkdir", "MyWebFile", s->user);
+    // system(cmd);
     return true;
 }
 
@@ -76,10 +80,33 @@ void root(mg_connection *connection, http_message *http_req)
         fprintf(stderr, "%s (sid %" INT64_X_FMT ") requested %.*s\n", s->user,
                 s->id, (int) http_req->uri.len, http_req->uri.p);
         connection->user_data = s;
-        // server.s_server_option.document_root = "./MyWebFile/";
-        // mg_serve_http(connection, (struct http_message *)http_req, server.s_server_option);
         showHtml(connection, "my_web_uploadfiles.html");
     }
+}
+
+
+void query(mg_connection *connection, http_message *http_req)
+{
+    struct session *s = server.GetSession(http_req);
+
+    ostringstream os;
+    os << "<!DOCTYPE html><head><meta charset=\"utf-8\"><title>Files</title></head>";
+    os << "<body><h1>文件列表：</h1>";
+    DbConnection db("localhost", "root", "root", "ses");
+
+    db.Connect();
+    list<map<string, string>> result;
+    db.Select("select * from files where user = \"test\"", result);
+
+    for (auto &it : result) {
+        map<string, string> map_it = it;
+        os << "<div>" << map_it["file_name"] << "</div>";
+    }
+
+    os << "</body></html>";
+    mg_printf(connection, "%s", "HTTP/1.1 200 OK\r\nContent-type: text/html\r\n\r\n");
+    cout << os.str() << endl;
+    mg_printf(connection, "%s", os.str().c_str());
 }
 
 
@@ -88,6 +115,7 @@ int main()
     server.Init("8000");
     server.RegisterHandler("/", root);
     server.RegisterHandler("/login", login);
+    server.RegisterHandler("/query", query);
 
     server.Start();
 
