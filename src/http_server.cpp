@@ -1,5 +1,6 @@
 #include <iostream>
 #include <cstdio>
+#include <cstring>
 #include <sstream>
 #include <fstream>
 #include <vector>
@@ -127,8 +128,20 @@ static void insertFileToDb(const char *user, const char *file_name)
 
     db.Connect();
     char sql[1024];
+    list<map<string, string>> res;
+
+    sprintf(sql, "select * from files where user = \"%s\" and file_name = \"%s\"", user, file_name);
+    db.Select(sql, res);
+    if(!res.empty()) {
+        printf("%s is exist\n", file_name);
+        return;
+    }
+
+    memset(sql, 0, sizeof(sql));
     sprintf(sql, "insert into files (user, file_name) values(\"%s\", \"%s\")", user, file_name);
-    db.Insert(sql);
+    if(!db.Insert(sql)) {
+        cout << "insert file " << file_name << "failed" << endl;
+    }
 }
 
 
@@ -184,17 +197,17 @@ static void handle_upload(struct mg_connection *nc, int ev, void *p)
     }
     case MG_EV_HTTP_PART_END:
     {
-        mg_printf(nc,
-                  "HTTP/1.1 200 OK\r\n"
-                  "Content-Type: text/plain\r\n"
-                  "Connection: close\r\n\r\n",
-                  (long)ftell(data->fp));
+        // mg_printf(nc,
+        //           "HTTP/1.1 200 OK\r\n"
+        //           "Content-Type: text/plain\r\n"
+        //           "Connection: close\r\n\r\n",
+        //           (long)ftell(data->fp));
         nc->flags |= MG_F_SEND_AND_CLOSE;
         fclose(data->fp);
         free(data);
         nc->user_data = NULL;
         insertFileToDb(user.c_str(), mp->file_name);
-        mg_http_send_redirect(connection, 302, mg_mk_str("/"), mg_mk_str(""));
+        mg_http_send_redirect(nc, 302, mg_mk_str("/"), mg_mk_str(""));
         break;
     }
     }
@@ -350,16 +363,35 @@ static bool getFile(http_message *http_req, string &file_path)
 }
 
 
-static void download(mg_connection *connection, string &file_path)
+static void download(mg_connection *connection, http_message *http_req, string &file_path)
 {
     stringstream stringbuffer;
-    ifstream file(file_path);
+    // ifstream file(file_path, ifstream::binary);
 
-    stringbuffer << file.rdbuf();
+	ifstream i_f_stream(file_path, ifstream::binary);
+	// [2]检测，避免路径无效;
+	if (!i_f_stream.is_open()) {
+		return;
+	}
+	// [3]定位到流末尾以获得长度;
+	i_f_stream.seekg(0, i_f_stream.end);
+	int length = i_f_stream.tellg();
+	// [4]再定位到开始处进行读取;
+	i_f_stream.seekg(0, i_f_stream.beg);
+ 
+	// [5]定义一个buffer;
+	char *buffer = new char[length];
+	// [6]将数据读入buffer;
+	i_f_stream.read(buffer, length);
+ 
+	// [7]记得关闭资源;
+	i_f_stream.close();
+ 
+	// cout.write(buffer, length);
 
-    mg_printf(connection, "%s%s","HTTP/1.1 200 OK\r\n"
-                  "Content-Type: text/plain\r\n"
-                  "Connection: close\r\n\r\n", stringbuffer.str().c_str());
+    mg_http_serve_file(connection, http_req, file_path.c_str(),
+                         mg_mk_str("text/plain"), mg_mk_str(""));
+    delete[] buffer;
 }
 
 
@@ -379,7 +411,7 @@ void HttpServer::HandleEvent(mg_connection *connection, http_message *http_req)
     }
     else if (getFile(http_req, file_path))
     {
-        download(connection, file_path);
+        download(connection, http_req, file_path);
     }
     else
     {
