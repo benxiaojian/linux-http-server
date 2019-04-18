@@ -3,10 +3,10 @@
 #include <sstream>
 #include <http_server.h>
 #include <db_connection.h>
+#include <log.h>
 using namespace std;
 
 #define WEB_PATH        "./web/"
-HttpServer server;
 
 static void showHtml(mg_connection *connection, const string &file_name)
 {
@@ -56,7 +56,7 @@ bool login(mg_connection *connection, http_message *http_req)
         return false;
     }
 
-    struct session *s = server.CreateSession(username, http_req);
+    struct session *s = HttpServer::GetInstance().CreateSession(username, http_req);
     char shead[100];
     snprintf(shead, sizeof(shead),
             "Set-Cookie: %s=%" INT64_X_FMT "; path=/", SESSION_COOKIE_NAME,
@@ -72,7 +72,7 @@ bool login(mg_connection *connection, http_message *http_req)
 
 void root(mg_connection *connection, http_message *http_req)
 {
-    struct session *s = server.GetSession(http_req);
+    struct session *s = HttpServer::GetInstance().GetSession(http_req);
     if (s == NULL) {
         showHtml(connection, "login.html");
         connection->flags |= MG_F_SEND_AND_CLOSE;
@@ -87,7 +87,7 @@ void root(mg_connection *connection, http_message *http_req)
 
 void query(mg_connection *connection, http_message *http_req)
 {
-    struct session *s = server.GetSession(http_req);
+    struct session *s = HttpServer::GetInstance().GetSession(http_req);
 
     ostringstream os;
     os << "<!DOCTYPE html><head><meta charset=\"utf-8\"><title>Files</title></head>";
@@ -113,11 +113,18 @@ void query(mg_connection *connection, http_message *http_req)
 
 int main()
 {    
-    server.Init("8000");
-    server.RegisterHandler("/", root);
-    server.RegisterHandler("/login", login);
-    server.RegisterHandler("/query", query);
+    FILE *log;
+    log = fopen("http_server.log", "w+");
+    log_set_file(log);
 
-    server.Start();
+    LOG("hello");
+
+    HttpServer::GetInstance().Init("8000");
+    HttpServer::GetInstance().RegisterHandler("/", root);
+    HttpServer::GetInstance().RegisterHandler("/login", login);
+    HttpServer::GetInstance().RegisterHandler("/query", query);
+
+    HttpServer::GetInstance().Start();
+    fclose(log);
 
 }

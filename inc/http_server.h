@@ -4,12 +4,16 @@
 #include <mongoose.h>
 #include <unordered_map>
 #include <functional>
+#include <session.h>
 
 /* This is the name of the cookie carrying the session ID. */
 #define SESSION_COOKIE_NAME "mgs"
 /* In our example sessions are destroyed after 30 seconds of inactivity. */
 #define SESSION_TTL 30.0
 #define SESSION_CHECK_INTERVAL 5.0
+
+/*最大会话数*/
+#define NUM_SESSIONS 10
 
 /* Session information structure. */
 struct session {
@@ -28,16 +32,19 @@ struct session {
   int lucky_number;
 };
 
-// 定义http返回callback
-typedef void OnRspCallback(mg_connection *c, std::string);
-// 定义http请求handler
-using ReqHandler = std::function<void (mg_connection *connection, http_message *http_req)>;
+
+typedef void OnRspCallback(mg_connection *c, std::string);                                          // 定义http返回callback
+using ReqHandler = std::function<void (mg_connection *connection, http_message *http_req)>;         // 定义http请求handler
+
 
 class HttpServer
 {
-public:
+private:
     HttpServer() {};
-    ~HttpServer() {};
+public:
+    virtual ~HttpServer() {};
+
+    static HttpServer& GetInstance(void);
 
     void Init(const std::string &port, const bool ssl_enable = false);        // 初始化设置
     bool Start(void);
@@ -45,15 +52,18 @@ public:
     void RegisterHandler(const std::string &url, ReqHandler req_handler);     // 注册url对应的处理方法
     void RemoveHandler(const std::string &url);                               // 删除处理方法
 
-    static struct session *GetSession(struct http_message *hm);
+    struct session *GetSession(struct http_message *hm);
     void DestroySession(struct session *s);
     struct session *CreateSession(const char *user, const struct http_message *hm);
 
     static mg_serve_http_opts s_server_option; // web服务器选项
-    static std::string s_web_dir;              // 网页根目录
     static std::unordered_map<std::string, ReqHandler> s_handler_map;   // 回调映射表
 
 private:
+    static HttpServer *s_instance;
+    struct session s_sessions[NUM_SESSIONS];
+    CookieSessions m_cookie_sessions;
+
     static void OnHttpEvent(mg_connection *connection, int event_type, void *event_data);
     static void HandleEvent(mg_connection *connection, http_message *http_req);
 
