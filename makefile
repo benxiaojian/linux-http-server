@@ -17,15 +17,15 @@ INCLUDE := -I./inc -I./common
 
 LDFLAGS := ./common/mongoose.a
 
-LIBS :=	-lmysqlclient
+LIBS :=	-lmysqlclient -lssl -lcrypto
 
-CFLAGS := -std=c++11 $(INCLUDE) $(LIBS) -DMG_ENABLE_HTTP_STREAMING_MULTIPART -DMG_ENABLE_HTTP_URL_REWRITES -g
+CFLAGS := -std=c++11 $(INCLUDE) $(LIBS) -DMG_ENABLE_HTTP_STREAMING_MULTIPART -DMG_ENABLE_HTTP_URL_REWRITES -DMG_ENABLE_SSL -g
 
 $(DIR_OBJ)/%.o: $(DIR_SRC)/%.cpp
-	$(CC) -c $< -o $@  $(CFLAGS) 
+	$(CC) -c $< -o $@  $(CFLAGS)
 
 $(BIN_TARGET) : $(OBJ)
-	$(CC) -o $@ $(OBJ) $(CFLAGS) $(LDFLAGS)
+	$(CC) -o $@ $(OBJ) $(LDFLAGS) $(CFLAGS) 
 
 clean:
 	rm $(wildcard $(DIR_OBJ)/*.o) $(BIN_TARGET)

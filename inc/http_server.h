@@ -15,23 +15,6 @@
 /*最大会话数*/
 #define NUM_SESSIONS 10
 
-/* Session information structure. */
-struct session {
-  /* Session ID. Must be unique and hard to guess. */
-  uint64_t id;
-  /*
-   * Time when the session was created and time of last activity.
-   * Used to clean up stale sessions.
-   */
-  double created;
-  double last_used; /* Time when the session was last active. */
-
-  /* User name this session is associated with. */
-  char *user;
-  /* Some state associated with user's session. */
-  int lucky_number;
-};
-
 
 typedef void OnRspCallback(mg_connection *c, std::string);                                          // 定义http返回callback
 using ReqHandler = std::function<void (mg_connection *connection, http_message *http_req)>;         // 定义http请求handler
@@ -58,11 +41,12 @@ public:
 
     static mg_serve_http_opts s_server_option; // web服务器选项
     static std::unordered_map<std::string, ReqHandler> s_handler_map;   // 回调映射表
-    static std::shared_ptr<CookieSessions> m_cookie_sessions;
+    static std::shared_ptr<CookieSessions> m_cookie_sessions;           // cookie session列表
+    static std::string s_ssl_cert;
+    static std::string s_ssl_key;
 
 private:
     static HttpServer *s_instance;
-    struct session s_sessions[NUM_SESSIONS];
 
     static void OnHttpEvent(mg_connection *connection, int event_type, void *event_data);
     static void HandleEvent(mg_connection *connection, http_message *http_req);
@@ -71,4 +55,6 @@ private:
     std::string m_port;     // 端口
     struct mg_mgr m_mgr;    // mongoose 连接管理器
     bool m_ssl_enable;
+
+
 };

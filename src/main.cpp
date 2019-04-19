@@ -123,7 +123,7 @@ int main()
 
     LOG("hello");
 
-    HttpServer::GetInstance().Init("8000");
+    HttpServer::GetInstance().Init("8000", true);
     HttpServer::GetInstance().RegisterHandler("/", root);
     HttpServer::GetInstance().RegisterHandler("/login", login);
     HttpServer::GetInstance().RegisterHandler("/query", query);

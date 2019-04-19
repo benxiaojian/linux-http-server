@@ -15,6 +15,8 @@ mg_serve_http_opts HttpServer::s_server_option;
 unordered_map<string, ReqHandler> HttpServer::s_handler_map;
 HttpServer* HttpServer::s_instance = NULL;
 shared_ptr<CookieSessions> HttpServer::m_cookie_sessions;
+string HttpServer::s_ssl_cert = "./ssl/server.pem";
+string HttpServer::s_ssl_key = "./ssl/server.key";
 
 HttpServer& HttpServer::GetInstance(void)
 {
@@ -41,12 +43,23 @@ void HttpServer::Init(const string &port, const bool ssl_enable)
 bool HttpServer::Start(void)
 {
     struct mg_connection *connection;
+    struct mg_bind_opts bind_opts;
+    const char *err;
 
     mg_mgr_init(&m_mgr, NULL); // 初始化连接器
 
-    connection = mg_bind(&m_mgr, m_port.c_str(), OnHttpEvent); // bind and listen, OnHttpEvent是收到请求后的回调
-    if (connection == NULL)
-    {
+    memset(&bind_opts, 0, sizeof(bind_opts));
+    bind_opts.ssl_cert = s_ssl_cert.c_str();
+    bind_opts.ssl_key = s_ssl_key.c_str();
+    bind_opts.error_string = &err;
+
+    if (m_ssl_enable) {
+        connection = mg_bind_opt(&m_mgr, m_port.c_str(), OnHttpEvent, bind_opts);
+    } else {
+        connection = mg_bind(&m_mgr, m_port.c_str(), OnHttpEvent); // bind and listen, OnHttpEvent是收到请求后的回调
+    }
+    
+    if (connection == NULL) {
         LOG("failed to create listener");
         return -1;
     }
