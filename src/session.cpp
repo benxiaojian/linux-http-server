@@ -24,9 +24,10 @@ m_max_sessions(max_sessions)
 {
 }
 
-Session* CookieSessions::CreateSession(const char *user, const struct http_message *hm)
+shared_ptr<Session> CookieSessions::CreateSession(const char *user, const struct http_message *hm)
 {
-    Session *session = new Session(user, hm);
+    shared_ptr<Session> session = make_shared<Session>(user, hm);
+    // Session *session = new Session(user, hm);
     int session_count = m_session_list.size();
 
     if (session_count < m_max_sessions)
@@ -38,25 +39,24 @@ Session* CookieSessions::CreateSession(const char *user, const struct http_messa
     int old_session_index = 0;
     int i;
     for (i=0; i<m_max_sessions; ++i)
-    {
+    { 
         if (m_session_list[i]->m_last_used < m_session_list[old_session_index]->m_last_used)
         {
             old_session_index = i;
         }
     }
 
-    delete(m_session_list[i]);
     m_session_list[i] = session;
 
     return session;
 }
 
 
-Session* CookieSessions::GetSession(struct http_message *hm)
+shared_ptr<Session> CookieSessions::GetSession(struct http_message *hm)
 {
     char ssid_buf[21];
     char *ssid = ssid_buf;
-    Session *ret = NULL;
+    shared_ptr<Session> ret;
     struct mg_str *cookie_header = mg_get_http_header(hm, "cookie");
     if (cookie_header == NULL)
         return ret;

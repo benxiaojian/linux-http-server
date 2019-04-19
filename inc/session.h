@@ -3,6 +3,8 @@
 #include <mongoose.h>
 #include <string>
 #include <vector>
+#include <memory>
+#include <log.h>
 
 /* This is the name of the cookie carrying the session ID. */
 #define SESSION_COOKIE_NAME "mgs"
@@ -14,7 +16,7 @@ class Session
 {
 public:
     Session(const char *user, const struct http_message *hm);
-    ~Session() {}
+    ~Session() {LOG("Release session");}
 
     uint64_t m_id;
     /*
@@ -37,11 +39,11 @@ public:
     CookieSessions() {}
     CookieSessions(int max_sessions);
 
-    Session* CreateSession(const char *user, const struct http_message *hm);
+    std::shared_ptr<Session> CreateSession(const char *user, const struct http_message *hm);
     void DestroySession(Session *session);
-    Session* GetSession(struct http_message *hm);
+    std::shared_ptr<Session> GetSession(struct http_message *hm);
 
 private:
     int m_max_sessions;
-    std::vector<Session*> m_session_list;
+    std::vector<std::shared_ptr<Session> > m_session_list;
 };

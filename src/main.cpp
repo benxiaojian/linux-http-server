@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <memory>
 #include <http_server.h>
 #include <db_connection.h>
 #include <log.h>
@@ -56,11 +57,11 @@ bool login(mg_connection *connection, http_message *http_req)
         return false;
     }
 
-    struct session *s = HttpServer::GetInstance().CreateSession(username, http_req);
+    shared_ptr<Session> s = HttpServer::GetInstance().m_cookie_sessions->CreateSession(username, http_req);
     char shead[100];
     snprintf(shead, sizeof(shead),
             "Set-Cookie: %s=%" INT64_X_FMT "; path=/", SESSION_COOKIE_NAME,
-            s->id);
+            s->m_id);
     mg_http_send_redirect(connection, 302, mg_mk_str("/"), mg_mk_str(shead));
 
     // char cmd[1024];
@@ -72,14 +73,14 @@ bool login(mg_connection *connection, http_message *http_req)
 
 void root(mg_connection *connection, http_message *http_req)
 {
-    struct session *s = HttpServer::GetInstance().GetSession(http_req);
+    shared_ptr<Session> s = HttpServer::GetInstance().m_cookie_sessions->GetSession(http_req);
     if (s == NULL) {
         showHtml(connection, "login.html");
         connection->flags |= MG_F_SEND_AND_CLOSE;
     } else {
-        fprintf(stderr, "%s (sid %" INT64_X_FMT ") requested %.*s\n", s->user,
-                s->id, (int) http_req->uri.len, http_req->uri.p);
-        connection->user_data = s;
+        fprintf(stderr, "%s (sid %" INT64_X_FMT ") requested %.*s\n", s->m_user.c_str(),
+                s->m_id, (int) http_req->uri.len, http_req->uri.p);
+        // connection->user_data = (void*)s;
         showHtml(connection, "my_web_uploadfiles.html");
     }
 }
@@ -87,7 +88,7 @@ void root(mg_connection *connection, http_message *http_req)
 
 void query(mg_connection *connection, http_message *http_req)
 {
-    struct session *s = HttpServer::GetInstance().GetSession(http_req);
+    // struct session *s = HttpServer::GetInstance().m_cookie_sessions->GetSession(http_req);
 
     ostringstream os;
     os << "<!DOCTYPE html><head><meta charset=\"utf-8\"><title>Files</title></head>";
@@ -109,6 +110,9 @@ void query(mg_connection *connection, http_message *http_req)
     cout << os.str() << endl;
     mg_printf(connection, "%s", os.str().c_str());
 }
+
+
+
 
 
 int main()

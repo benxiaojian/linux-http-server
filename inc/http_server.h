@@ -52,20 +52,21 @@ public:
     void RegisterHandler(const std::string &url, ReqHandler req_handler);     // 注册url对应的处理方法
     void RemoveHandler(const std::string &url);                               // 删除处理方法
 
-    struct session *GetSession(struct http_message *hm);
+    // struct session *GetSession(struct http_message *hm);
     void DestroySession(struct session *s);
-    struct session *CreateSession(const char *user, const struct http_message *hm);
+    // struct session *CreateSession(const char *user, const struct http_message *hm);
 
     static mg_serve_http_opts s_server_option; // web服务器选项
     static std::unordered_map<std::string, ReqHandler> s_handler_map;   // 回调映射表
+    static std::shared_ptr<CookieSessions> m_cookie_sessions;
 
 private:
     static HttpServer *s_instance;
     struct session s_sessions[NUM_SESSIONS];
-    CookieSessions m_cookie_sessions;
 
     static void OnHttpEvent(mg_connection *connection, int event_type, void *event_data);
     static void HandleEvent(mg_connection *connection, http_message *http_req);
+    static void handleUpload(struct mg_connection *nc, int ev, void *p);
 
     std::string m_port;     // 端口
     struct mg_mgr m_mgr;    // mongoose 连接管理器

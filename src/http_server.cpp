@@ -14,6 +14,7 @@ using namespace std;
 mg_serve_http_opts HttpServer::s_server_option;
 unordered_map<string, ReqHandler> HttpServer::s_handler_map;
 HttpServer* HttpServer::s_instance = NULL;
+shared_ptr<CookieSessions> HttpServer::m_cookie_sessions;
 
 HttpServer& HttpServer::GetInstance(void)
 {
@@ -28,10 +29,12 @@ HttpServer& HttpServer::GetInstance(void)
 
 void HttpServer::Init(const string &port, const bool ssl_enable)
 {
+    m_cookie_sessions = make_shared<CookieSessions>(NUM_SESSIONS);
+
     m_port = port;
     m_ssl_enable = ssl_enable;
     s_server_option.document_root = ".";
-    m_cookie_sessions = new CookieSessions(20);
+    // m_cookie_sessions = new CookieSessions(20);
 }
 
 
@@ -122,38 +125,52 @@ static void insertFileToDb(const char *user, const char *file_name)
 }
 
 
+static void uploadResult(struct mg_connection *connection, bool succeed)
+{
+    ostringstream os;
+    mg_printf(connection, "%s", "HTTP/1.1 200 OK\r\nContent-type: text/html\r\n\r\n");
+    os << "<!DOCTYPE html><head><meta charset=\"utf-8\"><title>Upload</title></head>";
+    os << "<body><script type=\"text/javascript\">";
+    if (succeed) os << "alert(\"上传成功\")";
+    else os << "alert(\"上传失败\")";
+    os << "</script></body></html>";
+
+    mg_printf(connection, "%s", os.str().c_str());
+}
+
 
 struct file_writer_data
 {
     FILE *fp;
     size_t bytes_written;
 };
-static void handle_upload(struct mg_connection *nc, int ev, void *p)
+void HttpServer::handleUpload(struct mg_connection *nc, int ev, void *p)
 {
     if (ev == MG_EV_HTTP_MULTIPART_REQUEST)
     {
         http_message *http_req = (http_message *)p;
-        struct session *s = HttpServer::GetInstance().GetSession(http_req);
-        user = s->user;
+        LOG("Recevice Http Multipart %s", http_req->method.p);
+        shared_ptr<Session> s= m_cookie_sessions->GetSession(http_req);
+        user = s->m_user;
         return;
     }
 
     struct file_writer_data *data = (struct file_writer_data *)nc->user_data;
     struct mg_http_multipart_part *mp = (struct mg_http_multipart_part *)p;
-    cout << "handle upload" << endl;
-    cout << "file name = " << mp->file_name << endl;
     switch (ev)
     {
     case MG_EV_HTTP_PART_BEGIN:
     {
         if (data == NULL)
         {
+            LOG("Upload file %s", mp->file_name);
             data = (struct file_writer_data *)calloc(1, sizeof(struct file_writer_data));
             data->fp = fopen(getFileName(mp->file_name).c_str(), "w+");
             // data->fp = fopen(mp->file_name, "w+");
             data->bytes_written = 0;
             if (data->fp == NULL)
             {
+                LOG("Upload failure, failed to open a file");
                 mg_printf(nc, "%s",
                           "HTTP/1.1 500 Failed to open a file\r\n"
                           "Content-Length: 0\r\n\r\n");
@@ -185,7 +202,9 @@ static void handle_upload(struct mg_connection *nc, int ev, void *p)
         free(data);
         nc->user_data = NULL;
         insertFileToDb(user.c_str(), mp->file_name);
-        mg_http_send_redirect(nc, 302, mg_mk_str("/"), mg_mk_str(""));
+
+        uploadResult(nc, true);
+        mg_http_send_redirect(nc, 302, mg_mk_str("/"), mg_mk_str(NULL));
         break;
     }
     }
@@ -199,18 +218,18 @@ void HttpServer::OnHttpEvent(struct mg_connection *connection, int event_type, v
     switch (event_type)
     {
     case MG_EV_HTTP_REQUEST:
-        cout << "MG_EV_HTTP_REQUEST" << endl;
+        LOG("Recevice Http Request %s", http_req->method.p);
         HandleEvent(connection, http_req);
         break;
     case MG_EV_SSI_CALL:
-        cout << "MG_EV_SSI_CALL" << endl;
+        LOG("Recevice Http SSI %s", http_req->method.p);
         break;
     case MG_EV_HTTP_MULTIPART_REQUEST:
     case MG_EV_HTTP_PART_BEGIN:
     case MG_EV_HTTP_PART_DATA:
     case MG_EV_HTTP_PART_END:
     {
-        handle_upload(connection, event_type, event_data);
+        handleUpload(connection, event_type, event_data);
         break;
     }
     default:
@@ -233,7 +252,7 @@ static bool route_check(http_message *http_req, const string route_prefix)
 static void getAllFilesFromDb(http_message *http_req, vector<string> &files)
 {
     files.clear();
-    struct session *s = HttpServer::GetInstance().GetSession(http_req);
+    shared_ptr<Session> s = HttpServer::GetInstance().m_cookie_sessions->GetSession(http_req);
     DbConnection db("localhost", "root", "root", "ses");
 
     db.Connect();
@@ -260,9 +279,8 @@ static bool getFile(http_message *http_req, string &file_path)
     for (auto &file : files)
     {
         if (route_check(http_req, file)) {
-            struct session *s = HttpServer::GetInstance().GetSession(http_req);
-            sprintf(tmp_file_path, "%s%s%s", kUPLOAD_FILE_PATH, s->user, file.c_str());
-            cout << "\n\n\file name = " << tmp_file_path << endl;
+            shared_ptr<Session> s = HttpServer::GetInstance().m_cookie_sessions->GetSession(http_req);
+            sprintf(tmp_file_path, "%s%s%s", kUPLOAD_FILE_PATH, s->m_user.c_str(), file.c_str());
             file_path = tmp_file_path;
             return true;
         }
@@ -275,29 +293,22 @@ static bool getFile(http_message *http_req, string &file_path)
 static void download(mg_connection *connection, http_message *http_req, string &file_path)
 {
     stringstream stringbuffer;
-    // ifstream file(file_path, ifstream::binary);
-
 	ifstream i_f_stream(file_path, ifstream::binary);
-	// [2]检测，避免路径无效;
-	if (!i_f_stream.is_open()) {
+
+	if (!i_f_stream.is_open()) {            	// 检测，避免路径无效;
 		return;
 	}
-	// [3]定位到流末尾以获得长度;
-	i_f_stream.seekg(0, i_f_stream.end);
+	
+	i_f_stream.seekg(0, i_f_stream.end);        // 定位到流末尾以获得长度;
 	int length = i_f_stream.tellg();
-	// [4]再定位到开始处进行读取;
-	i_f_stream.seekg(0, i_f_stream.beg);
+	
+	i_f_stream.seekg(0, i_f_stream.beg);        // 再定位到开始处进行读取;
  
-	// [5]定义一个buffer;
-	char *buffer = new char[length];
-	// [6]将数据读入buffer;
-	i_f_stream.read(buffer, length);
+    char *buffer = new char[length];            // 定义一个buffer;
+	
+	i_f_stream.read(buffer, length);            // 将数据读入buffer;
+	i_f_stream.close();                         // 记得关闭资源;
  
-	// [7]记得关闭资源;
-	i_f_stream.close();
- 
-	// cout.write(buffer, length);
-
     mg_http_serve_file(connection, http_req, file_path.c_str(),
                          mg_mk_str("text/plain"), mg_mk_str(""));
     delete[] buffer;
@@ -314,10 +325,6 @@ void HttpServer::HandleEvent(mg_connection *connection, http_message *http_req)
         ReqHandler handle_func = it->second;
         handle_func(connection, http_req);
     }
-    else if (route_check(http_req, "/upload"))
-    {
-        mg_serve_http(connection, (struct http_message *)http_req, s_server_option);
-    }
     else if (getFile(http_req, file_path))
     {
         download(connection, http_req, file_path);
@@ -327,90 +334,4 @@ void HttpServer::HandleEvent(mg_connection *connection, http_message *http_req)
         mg_printf(connection, "HTTP/1.1 404 \r\n\r\nNot Found 404.\r\n");
     }
 }
-
-
-
-// /*
-//  * Parses the session cookie and returns a pointer to the session struct
-//  * or NULL if not found.
-//  */
-// struct session *HttpServer::GetSession(struct http_message *hm)
-// {
-//     char ssid_buf[21];
-//     char *ssid = ssid_buf;
-//     struct session *ret = NULL;
-//     struct mg_str *cookie_header = mg_get_http_header(hm, "cookie");
-//     if (cookie_header == NULL)
-//         return ret;
-//     if (!mg_http_parse_header2(cookie_header, SESSION_COOKIE_NAME, &ssid,
-//                                sizeof(ssid_buf)))
-//     {
-//         return ret;
-//     }
-//     uint64_t sid = strtoull(ssid, NULL, 16);
-//     int i;
-//     for (i = 0; i < NUM_SESSIONS; i++)
-//     {
-//         if (s_sessions[i].id == sid)
-//         {
-//             s_sessions[i].last_used = mg_time();
-//             ret = &s_sessions[i];
-//             return ret;
-//             ;
-//         }
-//     }
-
-//     return ret;
-// }
-
-// /*
-//  * Destroys the session state.
-//  */
-// void HttpServer::DestroySession(struct session *s)
-// {
-//     free(s->user);
-//     memset(s, 0, sizeof(*s));
-// }
-
-// /*
-//  * Creates a new session for the user.
-//  */
-// struct session *HttpServer::CreateSession(const char *user, const struct http_message *hm)
-// {
-//     /* Find first available slot or use the oldest one. */
-//     struct session *s = NULL;
-//     struct session *oldest_s = s_sessions;
-//     int i;
-//     for (i = 0; i < NUM_SESSIONS; i++)
-//     {
-//         if (s_sessions[i].id == 0)
-//         {
-//             s = &s_sessions[i];
-//             break;
-//         }
-//         if (s_sessions[i].last_used < oldest_s->last_used)
-//         {
-//             oldest_s = &s_sessions[i];
-//         }
-//     }
-//     if (s == NULL)
-//     {
-//         DestroySession(oldest_s);
-//         printf("Evicted %" INT64_X_FMT "/%s\n", oldest_s->id, oldest_s->user);
-//         s = oldest_s;
-//     }
-//     /* Initialize new session. */
-//     s->created = s->last_used = mg_time();
-//     s->user = strdup(user);
-//     s->lucky_number = rand();
-//     /* Create an ID by putting various volatiles into a pot and stirring. */
-//     cs_sha1_ctx ctx;
-//     cs_sha1_init(&ctx);
-//     cs_sha1_update(&ctx, (const unsigned char *)hm->message.p, hm->message.len);
-//     cs_sha1_update(&ctx, (const unsigned char *)s, sizeof(*s));
-//     unsigned char digest[20];
-//     cs_sha1_final(digest, &ctx);
-//     s->id = *((uint64_t *)digest);
-//     return s;
-// }
 
