@@ -4,6 +4,7 @@
 #include <cstring>
 #include <db_connection.h>
 #include <vector>
+#include <log.h>
 using namespace std;
 
 
@@ -34,7 +35,6 @@ void DbConnection::getSelectResult(list<map<string, string>> &result)
         col_num = mysql_num_fields(mysql_result);
         MYSQL_FIELD *fd;
         vector<string> v_name; 
-        cout << "col_num = " << col_num << endl;
 
         while (fd = mysql_fetch_field(mysql_result)) {
             v_name.push_back(fd->name);
@@ -81,7 +81,7 @@ bool DbConnection::Insert(const char *query)
 
 void DbConnection::showError(void)
 {
-    printf("Error(%d) [%s] \"%s\"", mysql_errno(m_mysql), mysql_sqlstate(m_mysql), mysql_error(m_mysql));
+    LOG("Error(%d) [%s] \"%s\"", mysql_errno(m_mysql), mysql_sqlstate(m_mysql), mysql_error(m_mysql));
 
     mysql_close(m_mysql);
     m_mysql = nullptr;

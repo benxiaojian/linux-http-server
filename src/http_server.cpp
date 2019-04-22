@@ -36,7 +36,6 @@ void HttpServer::Init(const string &port, const bool ssl_enable)
     m_port = port;
     m_ssl_enable = ssl_enable;
     s_server_option.document_root = ".";
-    // m_cookie_sessions = new CookieSessions(20);
 }
 
 
@@ -138,6 +137,9 @@ static void insertFileToDb(const char *user, const char *file_name)
 }
 
 
+/*
+* 文件上传结果
+*/
 static void uploadResult(struct mg_connection *connection, bool succeed)
 {
     ostringstream os;
@@ -152,6 +154,9 @@ static void uploadResult(struct mg_connection *connection, bool succeed)
 }
 
 
+/*
+* client文件上传
+*/
 struct file_writer_data
 {
     FILE *fp;
@@ -224,6 +229,9 @@ void HttpServer::handleUpload(struct mg_connection *nc, int ev, void *p)
 }
 
 
+/*
+* mongoose收到http request的回调方法
+*/
 void HttpServer::OnHttpEvent(struct mg_connection *connection, int event_type, void *event_data)
 {
     http_message *http_req = (http_message *)event_data;
@@ -262,15 +270,20 @@ static bool route_check(http_message *http_req, const string route_prefix)
 }
 
 
+/*
+* 根据cookie获取对应用户的全部文件名字
+*/
 static void getAllFilesFromDb(http_message *http_req, vector<string> &files)
 {
     files.clear();
     shared_ptr<Session> s = HttpServer::GetInstance().m_cookie_sessions->GetSession(http_req);
     DbConnection db("localhost", "root", "root", "ses");
+    char sql[1024];
 
     db.Connect();
     list<map<string, string>> result;
-    db.Select("select * from files where user = \"test\"", result);
+    sprintf(sql, "select * from files where user = \"%s\"", s->m_user.c_str());
+    db.Select(sql, result);
 
     for (auto &it : result) {
         map<string, string> map_it = it;
@@ -283,6 +296,9 @@ static void getAllFilesFromDb(http_message *http_req, vector<string> &files)
 }
 
 
+/*
+* 获取用户的全部上传文件
+*/
 static bool getFile(http_message *http_req, string &file_path)
 {
     vector<string> files;
@@ -303,6 +319,9 @@ static bool getFile(http_message *http_req, string &file_path)
 }
 
 
+/*
+* client文件下载请求
+*/
 static void download(mg_connection *connection, http_message *http_req, string &file_path)
 {
     stringstream stringbuffer;
