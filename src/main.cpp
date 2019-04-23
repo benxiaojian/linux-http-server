@@ -49,10 +49,14 @@ static bool checkPassword(const char *username, const char *password)
 
 static void createUserFolder(char *user)
 {
-    if (access("MyWebFile/Gary", F_OK) == 0) {
+    char path[1024];
+    sprintf(path, "MyWebFile/%s", user);
+    if (access(path, F_OK) == 0) {
     } else {
-        system("mkdir MyWebFile/Gary");
-        LOG("%s first login, create folder");
+        char cmd[1024];
+        sprintf(cmd, "mkdir %s", path);
+        system(cmd);
+        LOG("%s first login, create folder", user);
     }
 }
 
