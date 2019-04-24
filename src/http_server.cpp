@@ -53,7 +53,7 @@ bool HttpServer::Start(void)
     bind_opts.error_string = &err;
 
     if (m_ssl_enable) {
-        // Todo
+        connection = mg_bind_opt(&m_mgr, m_port.c_str(), OnHttpEvent, bind_opts);   // https
     } else {
         connection = mg_bind(&m_mgr, m_port.c_str(), OnHttpEvent); // bind and listen, OnHttpEvent是收到请求后的回调
     }
